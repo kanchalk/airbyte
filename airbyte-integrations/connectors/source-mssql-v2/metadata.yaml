@@ -29,5 +29,5 @@ data:
   tags:
     - language:java
   connectorTestSuitesOptions:
-    - suite: acceptanceTests
+    - suite: unitTests
 metadataSpecVersion: "1.0"

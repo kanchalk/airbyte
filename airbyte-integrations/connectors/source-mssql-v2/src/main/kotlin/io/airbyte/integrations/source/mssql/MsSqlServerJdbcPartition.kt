@@ -236,11 +236,14 @@ class MsSqlServerJdbcRfrSnapshotPartition(
     // in RFR case.
     override val completeState: OpaqueStateValue
         get() =
-            MsSqlServerJdbcStreamStateValue.snapshotCheckpoint(
-                primaryKey = checkpointColumns,
-                primaryKeyCheckpoint =
-                    checkpointColumns.map { upperBound?.get(0) ?: Jsons.nullNode() },
-            )
+            when (upperBound) {
+                null -> MsSqlServerJdbcStreamStateValue.snapshotCompleted
+                else ->
+                    MsSqlServerJdbcStreamStateValue.snapshotCheckpoint(
+                        primaryKey = checkpointColumns,
+                        primaryKeyCheckpoint = upperBound,
+                    )
+            }
 
     override fun incompleteState(lastRecord: ObjectNode): OpaqueStateValue =
         MsSqlServerJdbcStreamStateValue.snapshotCheckpoint(
@@ -259,11 +262,14 @@ class MsSqlServerJdbcCdcRfrSnapshotPartition(
 ) : MsSqlServerJdbcResumablePartition(selectQueryGenerator, streamState, primaryKey) {
     override val completeState: OpaqueStateValue
         get() =
-            MsSqlServerCdcInitialSnapshotStateValue.snapshotCheckpoint(
-                primaryKey = checkpointColumns,
-                primaryKeyCheckpoint =
-                    checkpointColumns.map { upperBound?.get(0) ?: Jsons.nullNode() },
-            )
+            when (upperBound) {
+                null -> MsSqlServerCdcInitialSnapshotStateValue.getSnapshotCompletedState(stream)
+                else ->
+                    MsSqlServerCdcInitialSnapshotStateValue.snapshotCheckpoint(
+                        primaryKey = checkpointColumns,
+                        primaryKeyCheckpoint = upperBound,
+                    )
+            }
 
     override fun incompleteState(lastRecord: ObjectNode): OpaqueStateValue =
         MsSqlServerCdcInitialSnapshotStateValue.snapshotCheckpoint(
@@ -361,12 +367,36 @@ class MsSqlServerJdbcSnapshotWithCursorPartition(
     override val upperBound: List<JsonNode>? = null
 
     override val completeState: OpaqueStateValue
-        get() =
-            MsSqlServerJdbcStreamStateValue.cursorIncrementalCheckpoint(
-                cursor,
-                cursorUpperBound,
-                stream,
-            )
+        get() {
+            // Handle cursor cutoff time first
+            val effectiveCursorCheckpoint =
+                if (
+                    cursorCutoffTime != null &&
+                        !cursorCutoffTime.isNull &&
+                        !cursorUpperBound.isNull &&
+                        cursorCutoffTime.asText() < cursorUpperBound.asText()
+                ) {
+                    cursorCutoffTime
+                } else {
+                    cursorUpperBound
+                }
+
+            return when (upperBound) {
+                null ->
+                    MsSqlServerJdbcStreamStateValue.cursorIncrementalCheckpoint(
+                        cursor,
+                        effectiveCursorCheckpoint,
+                        stream,
+                    )
+                else ->
+                    MsSqlServerJdbcStreamStateValue.snapshotWithCursorCheckpoint(
+                        primaryKey = checkpointColumns,
+                        primaryKeyCheckpoint = upperBound,
+                        cursor,
+                        stream,
+                    )
+            }
+        }
 
     override fun incompleteState(lastRecord: ObjectNode): OpaqueStateValue =
         MsSqlServerJdbcStreamStateValue.snapshotWithCursorCheckpoint(
@@ -557,11 +587,7 @@ fun MsSqlServerJdbcCursorIncrementalPartition.split(
         opaqueStateValues.map { MsSqlServerStateMigration.parseStateValue(it) }
 
     val inners: List<JsonNode> =
-        splitPointValues.mapNotNull { sv ->
-            if (sv.cursor != null) {
-                stateValueToJsonNode(cursor, sv.cursor)
-            } else null
-        }
+        splitPointValues.map { sv -> stateValueToJsonNode(cursor, sv.cursor) }
 
     val lbs: List<JsonNode> = listOf(cursorLowerBound) + inners
     val ubs: List<JsonNode> = inners + listOf(cursorUpperBound)
