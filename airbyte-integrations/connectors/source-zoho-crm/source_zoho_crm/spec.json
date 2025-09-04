@@ -46,7 +46,7 @@
       },
       "start_datetime": {
         "title": "Start Date",
-        "type": ["string", "null"],
+        "type": "string",
         "examples": [
           "2000-01-01",
           "2000-01-01 13:00",
@@ -55,7 +55,8 @@
           "2000-01-01T13:00:00-07:00"
         ],
         "description": "ISO 8601, for instance: `YYYY-MM-DD`, `YYYY-MM-DD HH:MM:SS+HH:MM`",
-        "format": "date-time"
+        "format": "date-time",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
       },
       "edition": {
         "title": "Zoho CRM Edition",
